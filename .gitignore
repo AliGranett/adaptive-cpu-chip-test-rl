@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+
+# Project artefacts (generated — regenerate with scripts in README)
+data/raw/*.csv
+data/processed/*.csv
+results/figures/*.png
+results/metrics/*.json
+results/metrics/*.csv
+results/metrics/*.md
+results/models/*
+results/runs/**/figures/*.png
+results/runs/**/metrics/*.json
+results/runs/**/metrics/*.csv
+results/runs/**/metrics/*.md
+results/runs/**/models/*
+results/runs/**/comparison.csv
+
+# Keep directory structure
+!**/.gitkeep

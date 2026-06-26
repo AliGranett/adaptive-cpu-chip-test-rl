@@ -1,0 +1,22 @@
+# Core scientific stack
+numpy>=1.26,<2.2
+pandas>=2.1
+scikit-learn>=1.4
+matplotlib>=3.8
+
+# Reinforcement learning
+gymnasium>=0.29
+stable-baselines3>=2.3
+
+# Gradient boosting baseline
+xgboost>=2.0
+
+# Notebooks
+jupyter>=1.0
+ipykernel>=6.29
+
+# Pretty Markdown tables (pandas.DataFrame.to_markdown)
+tabulate>=0.9
+
+# Testing & tooling
+pytest>=8.0
