@@ -1,0 +1,32 @@
+{
+  "n_chips": 286640,
+  "n_pass": 131954,
+  "n_fail": 154686,
+  "fail_rate": 0.539652525816355,
+  "n_stage2_failures": 129676,
+  "n_stage3_failures": 25010,
+  "n_missing_stage3": 135182,
+  "n_ambiguous_pass_no_final": 5506,
+  "excluded_leaky_columns": [
+    "Category_code_",
+    "Test_code"
+  ],
+  "state0_metadata_columns": [
+    "meta_lot",
+    "meta_wafer",
+    "meta_x",
+    "meta_y",
+    "meta_radial"
+  ],
+  "state1_stage2_columns": [
+    "s2_power",
+    "s2_speedh",
+    "s2_speedl",
+    "s2_duration",
+    "stage2_fail_flag"
+  ],
+  "state2_stage3_columns": [
+    "(none - dataset has no Stage-3 measurements)"
+  ],
+  "label_column": "label"
+}

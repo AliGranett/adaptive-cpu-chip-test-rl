@@ -15,8 +15,7 @@ import numpy as np
 
 from src.agents.q_learning_agent import QLearningAgent
 from src.config import CONFIG, Config, config_for_profile
-from src.data.preprocessing import load_processed_data
-from src.environment.chip_testing_env import ChipTestingEnv
+from src.environment.factory import SINGLE_STAGE, load_dataset_bundle, make_env
 from src.utils.helpers import get_logger, save_json, set_global_seed
 from src.utils.plotting import plot_reward_curve
 
@@ -29,6 +28,8 @@ def train_q_learning(
     n_episodes: int | None = None,
     reward_profile: str = "baseline",
     run_name: str | None = None,
+    dataset: str = "baseline",
+    environment: str = SINGLE_STAGE,
 ) -> QLearningAgent:
     """Train a tabular Q-learning agent on the chip-testing environment.
 
@@ -39,6 +40,8 @@ def train_q_learning(
             :data:`~src.config.REWARD_PROFILES`).
         run_name: Optional experiment name; outputs are isolated under
             ``results/runs/<run_name>/`` when set.
+        dataset: Dataset name (``"baseline"`` or ``"full_stage_v1"``).
+        environment: ``"single_stage"`` or ``"multi_stage"``.
 
     Returns:
         The trained :class:`QLearningAgent`.
@@ -48,15 +51,14 @@ def train_q_learning(
     run_paths.ensure()
 
     set_global_seed(run_config.seed)
-    data = load_processed_data(run_config)
-    env = ChipTestingEnv(
-        data.train,
-        data.feature_columns,
-        run_config,
-        reward_config=run_config.reward,
-    )
+    bundle = load_dataset_bundle(dataset, environment, run_config)
+    env = make_env(bundle, "train", run_config, reward_config=run_config.reward)
     logger.info(
-        "Q-learning | reward_profile=%s | run_name=%s", reward_profile, run_name or "baseline"
+        "Q-learning | dataset=%s | environment=%s | reward_profile=%s | run_name=%s",
+        dataset,
+        environment,
+        reward_profile,
+        run_name or "baseline",
     )
 
     agent = QLearningAgent(n_features=env.n_features, config=run_config)
@@ -98,6 +100,8 @@ def train_q_learning(
             "final_epsilon": agent.epsilon,
             "reward_profile": reward_profile,
             "run_name": run_name or "baseline",
+            "dataset": dataset,
+            "environment": environment,
         },
         run_paths.metrics / "qlearning_training.json",
     )
@@ -116,11 +120,17 @@ def main() -> None:
     parser.add_argument("--episodes", type=int, default=None)
     parser.add_argument("--reward-profile", type=str, default="baseline")
     parser.add_argument("--run-name", type=str, default=None)
+    parser.add_argument("--dataset", type=str, default="baseline")
+    parser.add_argument(
+        "--environment", type=str, default=SINGLE_STAGE, choices=[SINGLE_STAGE, "multi_stage"]
+    )
     args = parser.parse_args()
     train_q_learning(
         n_episodes=args.episodes,
         reward_profile=args.reward_profile,
         run_name=args.run_name,
+        dataset=args.dataset,
+        environment=args.environment,
     )
 
 

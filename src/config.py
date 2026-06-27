@@ -59,6 +59,7 @@ class Paths:
     # Canonical data file names.
     base_dataset: Path = PROJECT_ROOT / "data" / "raw" / "base_data.csv"
     raw_dataset: Path = PROJECT_ROOT / "data" / "raw" / "chip_tests.csv"
+    full_stage_dataset: Path = PROJECT_ROOT / "data" / "raw" / "full_stage_df.csv"
     train_dataset: Path = PROJECT_ROOT / "data" / "processed" / "train.csv"
     test_dataset: Path = PROJECT_ROOT / "data" / "processed" / "test.csv"
 
@@ -91,6 +92,23 @@ class Paths:
         base = self.runs / run_name
         return RunPaths(base / "models", base / "figures", base / "metrics")
 
+    def processed_split_paths(self, dataset: str | None = None) -> tuple[Path, Path]:
+        """Return the ``(train, test)`` processed CSV paths for a dataset.
+
+        Args:
+            dataset: Dataset name. ``None`` or ``"baseline"`` maps to the
+                top-level ``data/processed/{train,test}.csv`` used by the
+                original real-data run; any other name is isolated under
+                ``data/processed/<dataset>/``.
+
+        Returns:
+            A ``(train_path, test_path)`` tuple.
+        """
+        if dataset is None or dataset == "baseline":
+            return self.train_dataset, self.test_dataset
+        base = self.processed_data / dataset
+        return base / "train.csv", base / "test.csv"
+
 
 @dataclass(frozen=True)
 class RewardConfig:
@@ -120,6 +138,55 @@ class RewardConfig:
     # Extra penalty for passing a chip without any additional testing.
     early_pass_penalty: float = 0.0
 
+    # ------------------------------------------------------------------ #
+    # Multi-stage extensions (used only by MultiStageChipTestingEnv).
+    # These default to ``None``/``0`` so single-stage environments and the
+    # existing baseline / safety_reward_v1 profiles are completely unaffected.
+    # ------------------------------------------------------------------ #
+    # Per-stage testing costs (positive magnitudes; reward = -cost). When
+    # ``None`` the multi-stage env falls back to ``test_cost``.
+    stage2_cost: float | None = None
+    stage3_cost: float | None = None
+    # Penalty for classifying PASS using metadata only (Stage 0, before
+    # running Stage 2 at all).
+    metadata_only_pass_penalty: float = 0.0
+    # Reward for correctly stopping (STOP_FAIL) a chip that failed Stage 2,
+    # once the Stage-2 result is known. ``None`` -> falls back to correct_fail.
+    stage2_fail_detected_reward: float | None = None
+    # Penalty for passing (STOP_PASS) a chip that is known to have failed
+    # Stage 2. ``None`` -> falls back to false_pass.
+    stage2_fail_missed_penalty: float | None = None
+
+    # Resolved per-stage cost helpers -------------------------------------- #
+    def stage_cost(self, stage_index: int) -> float:
+        """Return the testing cost for entering a given stage.
+
+        Args:
+            stage_index: 1 for the Stage-2 measurements, 2 for Stage-3.
+
+        Returns:
+            The positive cost magnitude for that stage.
+        """
+        if stage_index == 1:
+            return self.stage2_cost if self.stage2_cost is not None else self.test_cost
+        if stage_index == 2:
+            return self.stage3_cost if self.stage3_cost is not None else self.test_cost
+        return self.test_cost
+
+    @property
+    def resolved_stage2_fail_detected_reward(self) -> float:
+        """Reward for catching a Stage-2 failure (falls back to correct_fail)."""
+        if self.stage2_fail_detected_reward is not None:
+            return self.stage2_fail_detected_reward
+        return self.correct_fail
+
+    @property
+    def resolved_stage2_fail_missed_penalty(self) -> float:
+        """Penalty for passing a Stage-2 failure (falls back to false_pass)."""
+        if self.stage2_fail_missed_penalty is not None:
+            return self.stage2_fail_missed_penalty
+        return self.false_pass
+
 
 # --------------------------------------------------------------------------- #
 # Named reward profiles
@@ -128,6 +195,9 @@ class RewardConfig:
 # is a safety-oriented profile: a much harsher false-pass penalty and a large
 # correct-fail reward to push the policy towards catching more defective chips,
 # while keeping continue cheap and discouraging passing without any testing.
+# ``full_stage_v1`` targets the expanded multi-stage dataset (chips that may
+# fail at Stage 2 or Stage 3): per-stage costs, a strong reward for catching
+# Stage-2 failures and a very strong penalty for letting them through.
 REWARD_PROFILES: dict[str, RewardConfig] = {
     "baseline": RewardConfig(),
     "safety_reward_v1": RewardConfig(
@@ -138,6 +208,20 @@ REWARD_PROFILES: dict[str, RewardConfig] = {
         # ``continue_cost`` of -2 is expressed as a positive per-step magnitude.
         test_cost=2.0,
         early_pass_penalty=-20.0,
+    ),
+    "full_stage_v1": RewardConfig(
+        correct_pass=10.0,
+        correct_fail=100.0,
+        false_pass=-500.0,
+        false_fail=-50.0,
+        # Per-stage costs (positive magnitudes for -1 / -4).
+        test_cost=1.0,
+        stage2_cost=1.0,
+        stage3_cost=4.0,
+        metadata_only_pass_penalty=-50.0,
+        early_pass_penalty=-20.0,
+        stage2_fail_detected_reward=120.0,
+        stage2_fail_missed_penalty=-600.0,
     ),
 }
 

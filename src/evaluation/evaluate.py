@@ -8,7 +8,7 @@ import numpy as np
 
 from src.agents import Agent
 from src.config import CONFIG, Config
-from src.environment.chip_testing_env import LABEL_FAIL, Action, ChipTestingEnv
+from src.environment.chip_testing_env import LABEL_FAIL, LABEL_PASS, Action, ChipTestingEnv
 from src.evaluation.metrics import EvaluationResult
 from src.utils.helpers import get_logger
 
@@ -44,6 +44,9 @@ def rollout_agent(
     rewards: list[float] = []
     test_costs: list[float] = []
     tests_run: list[int] = []
+    stages_stopped: list[int] = []
+    stage2_fail_flags: list[int] = []
+    has_stage_info = False
     action_counter: Counter[int] = Counter()
 
     for index in indices:
@@ -65,6 +68,10 @@ def rollout_agent(
         rewards.append(episode_reward)
         test_costs.append(float(info["test_cost_incurred"]))
         tests_run.append(int(info["tests_run"]))
+        if "stage" in info:
+            has_stage_info = True
+            stages_stopped.append(int(info["stage"]))
+            stage2_fail_flags.append(int(info.get("is_stage2_fail", 0)))
 
     logger.info("Rolled out agent over %d chips", len(indices))
     return EvaluationResult(
@@ -74,6 +81,8 @@ def rollout_agent(
         test_costs=np.array(test_costs),
         action_counts={int(a): int(c) for a, c in action_counter.items()},
         tests_run=np.array(tests_run),
+        stages_stopped=np.array(stages_stopped) if has_stage_info else None,
+        is_stage2_fail=np.array(stage2_fail_flags) if has_stage_info else None,
     )
 
 
@@ -122,4 +131,69 @@ def evaluate_supervised(
         test_costs=np.full(len(predictions), full_cost),
         action_counts=action_counts,
         tests_run=np.full(len(predictions), config.env.n_stages),
+    )
+
+
+def evaluate_supervised_multi_stage(
+    predictions: np.ndarray,
+    true_labels: np.ndarray,
+    is_stage2_fail: np.ndarray,
+    config: Config = CONFIG,
+) -> EvaluationResult:
+    """Wrap supervised predictions for the multi-stage environment.
+
+    Supervised baselines use *all* available features (metadata + Stage-2), so
+    they are charged the full multi-stage testing cost (Stage-2 + Stage-3) and
+    are treated as always reaching Stage-3. Rewards use the same multi-stage
+    reward logic as the environment, including the strong Stage-2-failure
+    detection reward / miss penalty.
+
+    Args:
+        predictions: Predicted labels (0 = PASS, 1 = FAIL).
+        true_labels: Ground-truth labels.
+        is_stage2_fail: Per-chip flag marking Stage-2 failures.
+        config: Project configuration (reward profile).
+
+    Returns:
+        An :class:`EvaluationResult` with stage routing fixed to Stage-3.
+    """
+    predictions = np.asarray(predictions).astype(int)
+    true_labels = np.asarray(true_labels).astype(int)
+    is_stage2_fail = np.asarray(is_stage2_fail).astype(int)
+    reward_cfg = config.reward
+    full_cost = reward_cfg.stage_cost(1) + reward_cfg.stage_cost(2)
+
+    rewards = np.empty(len(predictions), dtype=float)
+    for i, (pred, truth, s2f) in enumerate(zip(predictions, true_labels, is_stage2_fail)):
+        if pred == LABEL_FAIL:
+            if s2f:
+                class_reward = reward_cfg.resolved_stage2_fail_detected_reward
+            else:
+                class_reward = (
+                    reward_cfg.correct_fail if truth == LABEL_FAIL else reward_cfg.false_fail
+                )
+        else:  # predicted PASS
+            if s2f:
+                class_reward = reward_cfg.resolved_stage2_fail_missed_penalty
+            elif truth == LABEL_PASS:
+                class_reward = reward_cfg.correct_pass
+            else:
+                class_reward = reward_cfg.false_pass
+        rewards[i] = class_reward - full_cost
+
+    action_counts = {
+        int(Action.STOP_PASS): int(np.sum(predictions == LABEL_PASS)),
+        int(Action.STOP_FAIL): int(np.sum(predictions == LABEL_FAIL)),
+        int(Action.CONTINUE): int(2 * len(predictions)),
+    }
+    # Supervised baselines always run the full pipeline -> Stage-3 (index 2).
+    return EvaluationResult(
+        true_labels=true_labels,
+        predicted_labels=predictions,
+        rewards=rewards,
+        test_costs=np.full(len(predictions), full_cost),
+        action_counts=action_counts,
+        tests_run=np.full(len(predictions), 2),
+        stages_stopped=np.full(len(predictions), 2),
+        is_stage2_fail=is_stage2_fail,
     )

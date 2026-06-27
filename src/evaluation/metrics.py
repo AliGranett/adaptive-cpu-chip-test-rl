@@ -36,6 +36,11 @@ class EvaluationResult:
     action_counts: dict[int, int] = field(default_factory=dict)
     # Number of test stages run per chip (profile-independent test effort).
     tests_run: np.ndarray | None = None
+    # Multi-stage extras: the stage index at which each episode stopped
+    # (0 = before Stage-2, 1 = after Stage-2, 2 = sent to Stage-3) and a
+    # per-chip flag for chips that failed Stage-2.
+    stages_stopped: np.ndarray | None = None
+    is_stage2_fail: np.ndarray | None = None
 
 
 def classification_metrics(
@@ -70,22 +75,35 @@ def classification_metrics(
     return metrics
 
 
-def full_metrics(result: EvaluationResult, config: Config = CONFIG) -> dict[str, float]:
+def full_metrics(
+    result: EvaluationResult,
+    config: Config = CONFIG,
+    *,
+    full_testing_cost: float | None = None,
+) -> dict[str, float]:
     """Combine classification and cost metrics into a single report.
 
     Args:
         result: The collected per-chip evaluation outcomes.
         config: Project configuration (for full-testing cost reference).
+        full_testing_cost: Cost of fully testing one chip. Defaults to
+            ``n_stages * test_cost`` (single-stage); the multi-stage caller
+            passes ``stage2_cost + stage3_cost``.
 
     Returns:
         Dict including classification metrics plus average reward, average test
-        cost and cost-reduction percentage relative to full testing.
+        cost and cost-reduction percentage relative to full testing. For
+        multi-stage rollouts additional stage-routing metrics are included.
     """
     metrics = classification_metrics(result.true_labels, result.predicted_labels)
     metrics["avg_reward"] = float(np.mean(result.rewards))
     metrics["avg_test_cost"] = float(np.mean(result.test_costs))
 
-    full_cost = config.env.n_stages * config.reward.test_cost
+    full_cost = (
+        full_testing_cost
+        if full_testing_cost is not None
+        else config.env.n_stages * config.reward.test_cost
+    )
     metrics["cost_reduction_pct"] = (
         float((full_cost - metrics["avg_test_cost"]) / full_cost * 100.0)
         if full_cost
@@ -95,7 +113,45 @@ def full_metrics(result: EvaluationResult, config: Config = CONFIG) -> dict[str,
     # reward profile's per-stage cost, so it is directly comparable across runs.
     if result.tests_run is not None:
         metrics["avg_tests_run"] = float(np.mean(result.tests_run))
+    metrics.update(multi_stage_metrics(result))
     metrics["n_samples"] = int(len(result.true_labels))
+    return metrics
+
+
+def multi_stage_metrics(result: EvaluationResult) -> dict[str, float]:
+    """Compute stage-routing metrics for a multi-stage rollout.
+
+    Returns an empty dict when the result has no stage information (single-stage
+    rollouts or supervised baselines without stage routing).
+
+    Metrics:
+        * ``pct_stopped_before_stage2`` - stopped at State 0 (metadata only).
+        * ``pct_stopped_after_stage2`` - stopped at State 1 (ran Stage-2 only).
+        * ``pct_sent_to_stage3`` - reached State 2 (ran Stage-3).
+        * ``pct_stage2_fail_correctly_stopped`` - of Stage-2-failed chips, the
+          fraction classified FAIL.
+        * ``pct_stage2_fail_incorrectly_passed`` - of Stage-2-failed chips, the
+          fraction classified PASS.
+    """
+    if result.stages_stopped is None:
+        return {}
+    stages = np.asarray(result.stages_stopped)
+    n = len(stages)
+    metrics: dict[str, float] = {
+        "pct_stopped_before_stage2": float(np.mean(stages == 0) * 100.0) if n else 0.0,
+        "pct_stopped_after_stage2": float(np.mean(stages == 1) * 100.0) if n else 0.0,
+        "pct_sent_to_stage3": float(np.mean(stages >= 2) * 100.0) if n else 0.0,
+    }
+    if result.is_stage2_fail is not None:
+        s2_fail = np.asarray(result.is_stage2_fail).astype(bool)
+        preds = np.asarray(result.predicted_labels).astype(int)
+        n_fail = int(s2_fail.sum())
+        if n_fail:
+            caught = float(np.mean(preds[s2_fail] == LABEL_FAIL) * 100.0)
+            metrics["pct_stage2_fail_correctly_stopped"] = caught
+            metrics["pct_stage2_fail_incorrectly_passed"] = float(
+                np.mean(preds[s2_fail] == LABEL_PASS) * 100.0
+            )
     return metrics
 
 

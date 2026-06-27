@@ -12,7 +12,7 @@ venv/
 
 # Project artefacts (generated — regenerate with scripts in README)
 data/raw/*.csv
-data/processed/*.csv
+data/processed/**/*.csv
 results/figures/*.png
 results/metrics/*.json
 results/metrics/*.csv
