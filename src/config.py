@@ -9,6 +9,7 @@ derived from :data:`PROJECT_ROOT`, which is computed relative to this file.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -340,3 +341,75 @@ def config_for_profile(profile_name: str, base: Config = CONFIG) -> Config:
         other setting (dataset, split, seed, hyperparameters) is unchanged.
     """
     return dataclasses.replace(base, reward=get_reward_profile(profile_name))
+
+
+# Mapping from the (signed) YAML reward keys to :class:`RewardConfig` fields.
+# Costs/penalties are written as *signed* values in YAML (e.g. ``-1``, ``-500``)
+# for readability, but :class:`RewardConfig` stores per-stage costs as positive
+# magnitudes (reward = ``-cost``); the conversion below handles that.
+def reward_config_from_mapping(mapping: Mapping[str, float]) -> RewardConfig:
+    """Build a :class:`RewardConfig` from a YAML-style reward mapping.
+
+    Expected keys (signed values; rewards positive, penalties/costs negative)::
+
+        continue_penalty            -> generic per-stage test cost fallback
+        stage2_cost / stage3_cost   -> optional per-stage costs (override)
+        correct_pass_reward         -> RewardConfig.correct_pass
+        correct_fail_reward         -> RewardConfig.correct_fail
+        false_fail_penalty          -> RewardConfig.false_fail
+        false_pass_penalty          -> RewardConfig.false_pass
+        stage2_fail_caught_reward   -> RewardConfig.stage2_fail_detected_reward
+        stage2_fail_missed_penalty  -> RewardConfig.stage2_fail_missed_penalty
+        metadata_only_pass_penalty  -> RewardConfig.metadata_only_pass_penalty
+        early_pass_penalty          -> RewardConfig.early_pass_penalty
+
+    With the default ``full_stage_v1`` values this reproduces
+    ``REWARD_PROFILES["full_stage_v1"]`` exactly.
+
+    Args:
+        mapping: A mapping of the reward keys above to numeric values.
+
+    Returns:
+        The corresponding :class:`RewardConfig`.
+
+    Raises:
+        KeyError: If a required reward key is missing.
+    """
+    required = (
+        "correct_pass_reward",
+        "correct_fail_reward",
+        "false_fail_penalty",
+        "false_pass_penalty",
+    )
+    missing = [k for k in required if k not in mapping]
+    if missing:
+        raise KeyError(f"Missing required reward keys: {missing}")
+
+    def _cost(key: str, default: float | None) -> float | None:
+        """Return a positive cost magnitude for a signed YAML cost value."""
+        if key not in mapping:
+            return default
+        return abs(float(mapping[key]))
+
+    continue_cost = _cost("continue_penalty", 1.0) or 1.0
+    return RewardConfig(
+        correct_pass=float(mapping["correct_pass_reward"]),
+        correct_fail=float(mapping["correct_fail_reward"]),
+        false_fail=float(mapping["false_fail_penalty"]),
+        false_pass=float(mapping["false_pass_penalty"]),
+        test_cost=continue_cost,
+        stage2_cost=_cost("stage2_cost", None),
+        stage3_cost=_cost("stage3_cost", None),
+        metadata_only_pass_penalty=float(mapping.get("metadata_only_pass_penalty", 0.0)),
+        early_pass_penalty=float(mapping.get("early_pass_penalty", 0.0)),
+        stage2_fail_detected_reward=(
+            float(mapping["stage2_fail_caught_reward"])
+            if "stage2_fail_caught_reward" in mapping
+            else None
+        ),
+        stage2_fail_missed_penalty=(
+            float(mapping["stage2_fail_missed_penalty"])
+            if "stage2_fail_missed_penalty" in mapping
+            else None
+        ),
+    )

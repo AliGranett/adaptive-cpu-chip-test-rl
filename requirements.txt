@@ -18,5 +18,8 @@ ipykernel>=6.29
 # Pretty Markdown tables (pandas.DataFrame.to_markdown)
 tabulate>=0.9
 
+# YAML configuration (reward sweep)
+PyYAML>=6.0
+
 # Testing & tooling
 pytest>=8.0

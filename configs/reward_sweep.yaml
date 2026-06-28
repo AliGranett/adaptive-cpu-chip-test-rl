@@ -1,0 +1,39 @@
+# =============================================================================
+# Multi-objective reward-sensitivity sweep for the DQN agent.
+#
+# Run with:
+#     python experiments/run_reward_sweep.py --config configs/reward_sweep.yaml
+#
+# Only the reward configuration changes between runs. The DQN algorithm,
+# architecture, optimizer, replay buffer, exploration schedule and
+# hyperparameters are NOT modified (they come from src/config.py -> DQNConfig).
+# =============================================================================
+
+experiment:
+  name: reward_sweep
+  dataset: full_stage_v1        # processed split under data/processed/full_stage_v1/
+  environment: multi_stage      # MultiStageChipTestingEnv
+  total_timesteps: 200000       # identical for every run
+  seeds: [42, 123, 2024]
+  # The sweep replaces `reward.false_pass_penalty` with each value below,
+  # keeping every other reward value fixed at the defaults in `reward:`.
+  false_pass_penalty_sweep: [-100, -200, -300, -500, -750, -1000]
+  recall_constraint: 0.95       # FAIL-recall constraint for the Pareto frontier
+
+# -----------------------------------------------------------------------------
+# Default reward configuration. Signed values: rewards positive,
+# penalties/costs negative. These defaults are equivalent to the existing
+# `full_stage_v1` reward profile (see src/config.py:REWARD_PROFILES).
+# -----------------------------------------------------------------------------
+reward:
+  continue_penalty: -1            # generic per-stage test cost fallback
+  stage2_cost: -1                 # cost of running Stage 2
+  stage3_cost: -4                 # cost of running Stage 3
+  correct_pass_reward: 10
+  correct_fail_reward: 100
+  false_fail_penalty: -50         # PASS chip wrongly failed
+  false_pass_penalty: -500        # FAIL chip wrongly passed (swept)
+  stage2_fail_caught_reward: 120  # correctly stopping a Stage-2 failure
+  stage2_fail_missed_penalty: -600
+  metadata_only_pass_penalty: -50 # passing using metadata only (no testing)
+  early_pass_penalty: -20         # passing after Stage 2 without seeing Stage 3
