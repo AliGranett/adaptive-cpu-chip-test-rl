@@ -2,9 +2,8 @@
 
 Run as a module::
 
-    python -m src.training.train_dqn --timesteps 200000
     python -m src.training.train_dqn --timesteps 200000 \\
-        --reward-profile safety_reward_v1 --run-name safety_reward_v1
+        --dataset full_stage_v1 --run-name full_stage_v1
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ from stable_baselines3.common.monitor import Monitor
 
 from src.agents.dqn_agent import DQNAgent
 from src.config import CONFIG, Config, config_for_profile
-from src.environment.factory import SINGLE_STAGE, load_dataset_bundle, make_env
+from src.environment.factory import DEFAULT_DATASET, MULTI_STAGE, load_dataset_bundle, make_env
 from src.utils.helpers import get_logger, save_json, set_global_seed
 from src.utils.plotting import plot_reward_curve
 
@@ -42,26 +41,12 @@ def train_dqn(
     config: Config = CONFIG,
     *,
     total_timesteps: int | None = None,
-    reward_profile: str = "baseline",
+    reward_profile: str = "full_stage_v1",
     run_name: str | None = None,
-    dataset: str = "baseline",
-    environment: str = SINGLE_STAGE,
+    dataset: str = DEFAULT_DATASET,
+    environment: str = MULTI_STAGE,
 ) -> DQNAgent:
-    """Train a DQN agent on the chip-testing environment.
-
-    Args:
-        config: Project configuration.
-        total_timesteps: Optional override for the training-step budget.
-        reward_profile: Named reward profile to train under (see
-            :data:`~src.config.REWARD_PROFILES`).
-        run_name: Optional experiment name; outputs are isolated under
-            ``results/runs/<run_name>/`` when set.
-        dataset: Dataset name (``"baseline"`` or ``"full_stage_v1"``).
-        environment: ``"single_stage"`` or ``"multi_stage"``.
-
-    Returns:
-        The trained :class:`DQNAgent`.
-    """
+    """Train a DQN agent on the multi-stage chip-testing environment."""
     run_config = config_for_profile(reward_profile, config)
     run_paths = config.paths.run_paths(run_name)
     run_paths.ensure()
@@ -70,11 +55,10 @@ def train_dqn(
     bundle = load_dataset_bundle(dataset, environment, run_config)
     env = Monitor(make_env(bundle, "train", run_config, reward_config=run_config.reward))
     logger.info(
-        "DQN | dataset=%s | environment=%s | reward_profile=%s | run_name=%s",
+        "DQN | dataset=%s | reward_profile=%s | run_name=%s",
         dataset,
-        environment,
         reward_profile,
-        run_name or "baseline",
+        run_name or "default",
     )
 
     agent = DQNAgent(run_config)
@@ -90,7 +74,7 @@ def train_dqn(
             "total_timesteps": total_timesteps or run_config.dqn.total_timesteps,
             "n_episodes": len(callback.episode_rewards),
             "reward_profile": reward_profile,
-            "run_name": run_name or "baseline",
+            "run_name": run_name,
             "dataset": dataset,
             "environment": environment,
         },
@@ -110,12 +94,10 @@ def main() -> None:
     """Command-line entry point."""
     parser = argparse.ArgumentParser(description="Train the DQN agent")
     parser.add_argument("--timesteps", type=int, default=None)
-    parser.add_argument("--reward-profile", type=str, default="baseline")
+    parser.add_argument("--reward-profile", type=str, default="full_stage_v1")
     parser.add_argument("--run-name", type=str, default=None)
-    parser.add_argument("--dataset", type=str, default="baseline")
-    parser.add_argument(
-        "--environment", type=str, default=SINGLE_STAGE, choices=[SINGLE_STAGE, "multi_stage"]
-    )
+    parser.add_argument("--dataset", type=str, default=DEFAULT_DATASET)
+    parser.add_argument("--environment", type=str, default=MULTI_STAGE)
     args = parser.parse_args()
     train_dqn(
         total_timesteps=args.timesteps,

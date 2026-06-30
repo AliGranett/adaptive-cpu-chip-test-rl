@@ -10,7 +10,7 @@ fail at Stage 2 (and never reach Stage 3) or fail at the final / Stage-3 test:
     State 2: metadata + Stage-2 + Stage-3 measurements
         actions: STOP_PASS / STOP_FAIL
 
-The single :class:`~src.environment.chip_testing_env.Action.CONTINUE` action is
+The single :class:`~src.environment.actions.Action.CONTINUE` action is
 context-dependent: at State 0 it means *RUN_STAGE2*, at State 1 it means
 *RUN_STAGE3*. This keeps the action space at ``Discrete(3)`` so the existing
 tabular Q-learning and DQN agents work unchanged, while the ``info`` dict and
@@ -42,7 +42,7 @@ import pandas as pd
 from gymnasium import spaces
 
 from src.config import CONFIG, Config, RewardConfig
-from src.environment.chip_testing_env import LABEL_FAIL, LABEL_PASS, Action
+from src.environment.actions import LABEL_FAIL, LABEL_PASS, Action
 from src.utils.helpers import get_logger
 
 logger = get_logger(__name__)
@@ -180,7 +180,7 @@ class MultiStageChipTestingEnv(gym.Env):
         """Apply an action and advance the episode.
 
         Args:
-            action: One of :class:`~src.environment.chip_testing_env.Action`.
+            action: One of :class:`~src.environment.actions.Action`.
 
         Returns:
             Tuple ``(observation, reward, terminated, truncated, info)``.

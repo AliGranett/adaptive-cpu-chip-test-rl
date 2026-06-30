@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 
 from src.config import CONFIG, Config
-from src.environment.chip_testing_env import Action
+from src.environment.actions import Action
 
 
 class RuleBasedAgent:

@@ -40,7 +40,7 @@ def test_full_metrics_cost_reduction(small_config: Config) -> None:
         test_costs=np.array([1.0, 1.0]),
     )
     metrics = full_metrics(result, small_config)
-    full_cost = small_config.env.n_stages * small_config.reward.test_cost
+    full_cost = small_config.reward.stage_cost(1) + small_config.reward.stage_cost(2)
     expected = (full_cost - 1.0) / full_cost * 100.0
     assert abs(metrics["cost_reduction_pct"] - expected) < 1e-6
 

@@ -1,1 +1,1 @@
-"""Data layer: loading, synthetic generation, preprocessing and features."""
+"""Data layer: full-stage dataset loading and preprocessing."""

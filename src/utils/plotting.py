@@ -15,7 +15,7 @@ matplotlib.use("Agg")  # Safe for headless script/CI execution.
 import matplotlib.pyplot as plt
 import numpy as np
 
-from src.environment.chip_testing_env import Action
+from src.environment.actions import Action
 from src.utils.helpers import get_logger
 
 logger = get_logger(__name__)

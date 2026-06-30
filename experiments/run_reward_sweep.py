@@ -66,7 +66,7 @@ from src.config import (
     RewardConfig,
     reward_config_from_mapping,
 )
-from src.environment.chip_testing_env import LABEL_FAIL, LABEL_PASS
+from src.environment.actions import LABEL_FAIL, LABEL_PASS
 from src.environment.factory import load_dataset_bundle, make_env
 from src.evaluation.evaluate import rollout_agent
 from src.evaluation.metrics import confusion_matrix_counts, full_metrics

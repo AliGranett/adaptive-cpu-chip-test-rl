@@ -54,7 +54,7 @@ from src.baselines.logistic_baseline import LogisticBaseline
 from src.baselines.xgboost_baseline import XGBoostBaseline
 from src.config import CONFIG, REWARD_PROFILES, Config
 from src.data.full_stage_loader import load_full_stage_processed
-from src.environment.chip_testing_env import LABEL_FAIL, LABEL_PASS
+from src.environment.actions import LABEL_FAIL, LABEL_PASS
 from src.evaluation.metrics import classification_metrics, confusion_matrix_counts
 from src.utils.helpers import get_logger
 

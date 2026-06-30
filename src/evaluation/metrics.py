@@ -22,7 +22,7 @@ from sklearn.metrics import (
 )
 
 from src.config import CONFIG, Config
-from src.environment.chip_testing_env import LABEL_FAIL, LABEL_PASS
+from src.environment.actions import LABEL_FAIL, LABEL_PASS
 
 
 @dataclass
@@ -87,8 +87,8 @@ def full_metrics(
         result: The collected per-chip evaluation outcomes.
         config: Project configuration (for full-testing cost reference).
         full_testing_cost: Cost of fully testing one chip. Defaults to
-            ``n_stages * test_cost`` (single-stage); the multi-stage caller
-            passes ``stage2_cost + stage3_cost``.
+            Stage-2 + Stage-3 costs from the reward profile; callers may
+            override explicitly.
 
     Returns:
         Dict including classification metrics plus average reward, average test
@@ -102,7 +102,7 @@ def full_metrics(
     full_cost = (
         full_testing_cost
         if full_testing_cost is not None
-        else config.env.n_stages * config.reward.test_cost
+        else config.reward.stage_cost(1) + config.reward.stage_cost(2)
     )
     metrics["cost_reduction_pct"] = (
         float((full_cost - metrics["avg_test_cost"]) / full_cost * 100.0)

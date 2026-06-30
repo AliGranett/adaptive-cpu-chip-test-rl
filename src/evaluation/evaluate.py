@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from collections import Counter
 
+import gymnasium as gym
 import numpy as np
 
 from src.agents import Agent
 from src.config import CONFIG, Config
-from src.environment.chip_testing_env import LABEL_FAIL, LABEL_PASS, Action, ChipTestingEnv
+from src.environment.actions import LABEL_FAIL, LABEL_PASS, Action
 from src.evaluation.metrics import EvaluationResult
 from src.utils.helpers import get_logger
 
@@ -17,7 +18,7 @@ logger = get_logger(__name__)
 
 def rollout_agent(
     agent: Agent,
-    env: ChipTestingEnv,
+    env: gym.Env,
     *,
     indices: list[int] | None = None,
 ) -> EvaluationResult:
@@ -83,54 +84,6 @@ def rollout_agent(
         tests_run=np.array(tests_run),
         stages_stopped=np.array(stages_stopped) if has_stage_info else None,
         is_stage2_fail=np.array(stage2_fail_flags) if has_stage_info else None,
-    )
-
-
-def evaluate_supervised(
-    predictions: np.ndarray,
-    true_labels: np.ndarray,
-    config: Config = CONFIG,
-) -> EvaluationResult:
-    """Wrap supervised-classifier predictions in an :class:`EvaluationResult`.
-
-    Supervised baselines use *all* features, so they are charged the full
-    per-chip testing cost (every stage). Rewards are computed with the same
-    reward structure used by the environment for a terminal classification.
-
-    Args:
-        predictions: Predicted labels (0 = PASS, 1 = FAIL).
-        true_labels: Ground-truth labels.
-        config: Project configuration (rewards and full-testing cost).
-
-    Returns:
-        An :class:`EvaluationResult` consistent with environment rollouts.
-    """
-    predictions = np.asarray(predictions).astype(int)
-    true_labels = np.asarray(true_labels).astype(int)
-    reward_cfg = config.reward
-    full_cost = config.env.n_stages * reward_cfg.test_cost
-
-    rewards = np.empty(len(predictions), dtype=float)
-    for i, (pred, truth) in enumerate(zip(predictions, true_labels)):
-        if pred == LABEL_FAIL:
-            class_reward = reward_cfg.correct_fail if truth == LABEL_FAIL else reward_cfg.false_fail
-        else:  # predicted PASS
-            class_reward = reward_cfg.correct_pass if truth == 0 else reward_cfg.false_pass
-        # Full testing cost is paid before the classification reward.
-        rewards[i] = class_reward - full_cost
-
-    action_counts = {
-        int(Action.STOP_PASS): int(np.sum(predictions == 0)),
-        int(Action.STOP_FAIL): int(np.sum(predictions == LABEL_FAIL)),
-        int(Action.CONTINUE): int(config.env.n_stages * len(predictions)),
-    }
-    return EvaluationResult(
-        true_labels=true_labels,
-        predicted_labels=predictions,
-        rewards=rewards,
-        test_costs=np.full(len(predictions), full_cost),
-        action_counts=action_counts,
-        tests_run=np.full(len(predictions), config.env.n_stages),
     )
 
 

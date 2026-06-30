@@ -1,4 +1,4 @@
-"""Tests for reward profiles, run paths and the early-pass penalty."""
+"""Tests for reward profiles, run paths and multi-stage penalties."""
 
 from __future__ import annotations
 
@@ -10,33 +10,28 @@ from src.config import (
     config_for_profile,
     get_reward_profile,
 )
-from src.data.preprocessing import ProcessedData
-from src.environment.chip_testing_env import LABEL_FAIL, LABEL_PASS, Action, ChipTestingEnv
+from src.data.full_stage_loader import MultiStageData
+from src.environment.actions import LABEL_PASS, Action
+from src.environment.multi_stage_env import MultiStageChipTestingEnv
 
 
 def test_reward_profiles_registered() -> None:
-    assert "baseline" in REWARD_PROFILES
-    assert "safety_reward_v1" in REWARD_PROFILES
+    assert "full_stage_v1" in REWARD_PROFILES
 
 
-def test_safety_profile_values() -> None:
-    safety = get_reward_profile("safety_reward_v1")
-    assert safety.correct_fail == 100.0
-    assert safety.false_pass == -500.0
-    assert safety.false_fail == -50.0
-    assert safety.correct_pass == 10.0
-    assert safety.test_cost == 2.0  # continue_cost of -2 as a magnitude
-    assert safety.early_pass_penalty == -20.0
+def test_full_stage_profile_values() -> None:
+    profile = get_reward_profile("full_stage_v1")
+    assert profile.correct_fail == 100.0
+    assert profile.false_pass == -500.0
+    assert profile.stage2_cost == 1.0
+    assert profile.stage3_cost == 4.0
+    assert profile.metadata_only_pass_penalty == -50.0
+    assert profile.early_pass_penalty == -20.0
 
 
-def test_baseline_profile_matches_defaults(small_config: Config) -> None:
-    baseline = get_reward_profile("baseline")
-    assert baseline.correct_pass == 20.0
-    assert baseline.false_pass == -100.0
-    assert baseline.early_pass_penalty == 0.0
-    # Replacing with the baseline profile must not change behaviour.
-    same = config_for_profile("baseline", small_config)
-    assert same.reward.correct_pass == small_config.reward.correct_pass
+def test_config_for_profile_replaces_reward(small_config: Config) -> None:
+    cfg = config_for_profile("full_stage_v1", small_config)
+    assert cfg.reward == REWARD_PROFILES["full_stage_v1"]
 
 
 def test_unknown_profile_raises() -> None:
@@ -49,63 +44,65 @@ def test_unknown_profile_raises() -> None:
 
 def test_run_paths_isolated(small_config: Config) -> None:
     baseline = small_config.paths.run_paths(None)
-    named = small_config.paths.run_paths("safety_reward_v1")
+    named = small_config.paths.run_paths("full_stage_v1")
     assert baseline.models == small_config.paths.models
-    assert "runs/safety_reward_v1" in str(named.models)
+    assert "runs/full_stage_v1" in str(named.models)
     assert named.models != baseline.models
 
 
-def _safety_env(processed: ProcessedData, small_config: Config) -> ChipTestingEnv:
-    cfg = config_for_profile("safety_reward_v1", small_config)
-    return ChipTestingEnv(
-        processed.train, processed.feature_columns, cfg, reward_config=cfg.reward
+def _env(data: MultiStageData, config: Config) -> MultiStageChipTestingEnv:
+    return MultiStageChipTestingEnv(
+        data.train,
+        data.columns.stage_groups,
+        config,
     )
 
 
-def test_early_pass_penalty_applied_when_no_continue(
-    processed: ProcessedData, small_config: Config
+def test_metadata_only_pass_penalty(
+    multi_stage_data: MultiStageData, small_config: Config
 ) -> None:
-    env = _safety_env(processed, small_config)
+    env = _env(multi_stage_data, small_config)
     pass_index = int(np.where(env._labels == LABEL_PASS)[0][0])
     env.reset(options={"index": pass_index})
-    # STOP_PASS immediately (no CONTINUE): correct_pass (10) + early penalty (-20).
+    _, reward, terminated, _, info = env.step(Action.STOP_PASS)
+    assert terminated
+    assert info["early_pass_penalty_applied"] is True
+    assert reward == 10.0 + (-50.0)
+
+
+def test_early_pass_penalty_after_stage2(
+    multi_stage_data: MultiStageData, small_config: Config
+) -> None:
+    env = _env(multi_stage_data, small_config)
+    pass_index = int(np.where(env._labels == LABEL_PASS)[0][0])
+    env.reset(options={"index": pass_index})
+    env.step(Action.CONTINUE)
     _, reward, terminated, _, info = env.step(Action.STOP_PASS)
     assert terminated
     assert info["early_pass_penalty_applied"] is True
     assert reward == 10.0 + (-20.0)
 
 
-def test_early_pass_penalty_skipped_after_continue(
-    processed: ProcessedData, small_config: Config
+def test_stage2_fail_detected_reward(
+    multi_stage_data: MultiStageData, small_config: Config
 ) -> None:
-    env = _safety_env(processed, small_config)
-    pass_index = int(np.where(env._labels == LABEL_PASS)[0][0])
-    env.reset(options={"index": pass_index})
-    env.step(Action.CONTINUE)  # reveal additional information first
-    _, reward, terminated, _, info = env.step(Action.STOP_PASS)
-    assert terminated
-    assert info["early_pass_penalty_applied"] is False
-    assert reward == 10.0  # correct_pass only, no early penalty
-
-
-def test_early_penalty_not_applied_to_stop_fail(
-    processed: ProcessedData, small_config: Config
-) -> None:
-    env = _safety_env(processed, small_config)
-    fail_index = int(np.where(env._labels == LABEL_FAIL)[0][0])
-    env.reset(options={"index": fail_index})
+    env = _env(multi_stage_data, small_config)
+    s2_fail_index = int(np.where(env._stage2_fail == 1)[0][0])
+    env.reset(options={"index": s2_fail_index})
+    env.step(Action.CONTINUE)
     _, reward, terminated, _, info = env.step(Action.STOP_FAIL)
     assert terminated
     assert info["early_pass_penalty_applied"] is False
-    assert reward == 100.0  # correct_fail, no early penalty for FAIL decisions
+    assert reward == 120.0
 
 
-def test_baseline_env_has_no_early_penalty(
-    processed: ProcessedData, small_config: Config
+def test_stop_fail_on_good_chip(
+    multi_stage_data: MultiStageData, small_config: Config
 ) -> None:
-    env = ChipTestingEnv(processed.train, processed.feature_columns, small_config)
+    env = _env(multi_stage_data, small_config)
     pass_index = int(np.where(env._labels == LABEL_PASS)[0][0])
     env.reset(options={"index": pass_index})
-    _, reward, _, _, info = env.step(Action.STOP_PASS)
+    _, reward, terminated, _, info = env.step(Action.STOP_FAIL)
+    assert terminated
     assert info["early_pass_penalty_applied"] is False
-    assert reward == small_config.reward.correct_pass
+    assert reward == small_config.reward.false_fail

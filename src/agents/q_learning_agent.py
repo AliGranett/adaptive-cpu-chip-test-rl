@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 
 from src.config import CONFIG, Config
-from src.environment.chip_testing_env import Action
+from src.environment.actions import Action
 
 
 class QLearningAgent:
@@ -37,7 +37,7 @@ class QLearningAgent:
         self.epsilon_decay = cfg.epsilon_decay
         self.n_bins = cfg.n_bins
         self.n_disc = min(cfg.n_discretised_features, n_features)
-        self.n_stages = config.env.n_stages
+        self.n_stages = config.env.max_stage_index
 
         # Bin edges for standardised features (roughly within +/- 3 sigma).
         self._bin_edges = np.linspace(-3.0, 3.0, self.n_bins - 1)

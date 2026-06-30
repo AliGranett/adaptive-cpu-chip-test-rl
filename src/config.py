@@ -18,6 +18,7 @@ from pathlib import Path
 # --------------------------------------------------------------------------- #
 # ``config.py`` lives in ``project/src/`` so the project root is two parents up.
 PROJECT_ROOT: Path = Path(__file__).resolve().parents[1]
+DEFAULT_DATASET = "full_stage_v1"
 
 
 @dataclass(frozen=True)
@@ -57,12 +58,14 @@ class Paths:
     models: Path = PROJECT_ROOT / "results" / "models"
     runs: Path = PROJECT_ROOT / "results" / "runs"
 
-    # Canonical data file names.
-    base_dataset: Path = PROJECT_ROOT / "data" / "raw" / "base_data.csv"
-    raw_dataset: Path = PROJECT_ROOT / "data" / "raw" / "chip_tests.csv"
+    # Raw and processed data for the full-stage multi-stage dataset.
     full_stage_dataset: Path = PROJECT_ROOT / "data" / "raw" / "full_stage_df.csv"
-    train_dataset: Path = PROJECT_ROOT / "data" / "processed" / "train.csv"
-    test_dataset: Path = PROJECT_ROOT / "data" / "processed" / "test.csv"
+    processed_train: Path = (
+        PROJECT_ROOT / "data" / "processed" / DEFAULT_DATASET / "train.csv"
+    )
+    processed_test: Path = (
+        PROJECT_ROOT / "data" / "processed" / DEFAULT_DATASET / "test.csv"
+    )
 
     def ensure(self) -> None:
         """Create every directory in the layout if it does not already exist."""
@@ -94,20 +97,9 @@ class Paths:
         return RunPaths(base / "models", base / "figures", base / "metrics")
 
     def processed_split_paths(self, dataset: str | None = None) -> tuple[Path, Path]:
-        """Return the ``(train, test)`` processed CSV paths for a dataset.
-
-        Args:
-            dataset: Dataset name. ``None`` or ``"baseline"`` maps to the
-                top-level ``data/processed/{train,test}.csv`` used by the
-                original real-data run; any other name is isolated under
-                ``data/processed/<dataset>/``.
-
-        Returns:
-            A ``(train_path, test_path)`` tuple.
-        """
-        if dataset is None or dataset == "baseline":
-            return self.train_dataset, self.test_dataset
-        base = self.processed_data / dataset
+        """Return the ``(train, test)`` processed CSV paths for a dataset."""
+        name = dataset or DEFAULT_DATASET
+        base = self.processed_data / name
         return base / "train.csv", base / "test.csv"
 
 
@@ -115,7 +107,7 @@ class Paths:
 class RewardConfig:
     """Reward structure for the chip-testing environment.
 
-    Action semantics (see :class:`~src.environment.chip_testing_env.Action`):
+    Action semantics (see :class:`~src.environment.actions.Action`):
 
     * ``CONTINUE`` -> ``-test_cost`` per revealed test stage.
     * ``STOP_PASS`` on a truly good chip  -> ``correct_pass``.
@@ -139,11 +131,7 @@ class RewardConfig:
     # Extra penalty for passing a chip without any additional testing.
     early_pass_penalty: float = 0.0
 
-    # ------------------------------------------------------------------ #
     # Multi-stage extensions (used only by MultiStageChipTestingEnv).
-    # These default to ``None``/``0`` so single-stage environments and the
-    # existing baseline / safety_reward_v1 profiles are completely unaffected.
-    # ------------------------------------------------------------------ #
     # Per-stage testing costs (positive magnitudes; reward = -cost). When
     # ``None`` the multi-stage env falls back to ``test_cost``.
     stage2_cost: float | None = None
@@ -192,30 +180,13 @@ class RewardConfig:
 # --------------------------------------------------------------------------- #
 # Named reward profiles
 # --------------------------------------------------------------------------- #
-# ``baseline`` reproduces the original real-data run exactly. ``safety_reward_v1``
-# is a safety-oriented profile: a much harsher false-pass penalty and a large
-# correct-fail reward to push the policy towards catching more defective chips,
-# while keeping continue cheap and discouraging passing without any testing.
-# ``full_stage_v1`` targets the expanded multi-stage dataset (chips that may
-# fail at Stage 2 or Stage 3): per-stage costs, a strong reward for catching
-# Stage-2 failures and a very strong penalty for letting them through.
+# Reward profile for the full-stage multi-stage experiments.
 REWARD_PROFILES: dict[str, RewardConfig] = {
-    "baseline": RewardConfig(),
-    "safety_reward_v1": RewardConfig(
-        correct_pass=10.0,
-        correct_fail=100.0,
-        false_fail=-50.0,
-        false_pass=-500.0,
-        # ``continue_cost`` of -2 is expressed as a positive per-step magnitude.
-        test_cost=2.0,
-        early_pass_penalty=-20.0,
-    ),
     "full_stage_v1": RewardConfig(
         correct_pass=10.0,
         correct_fail=100.0,
         false_pass=-500.0,
         false_fail=-50.0,
-        # Per-stage costs (positive magnitudes for -1 / -4).
         test_cost=1.0,
         stage2_cost=1.0,
         stage3_cost=4.0,
@@ -249,11 +220,10 @@ def get_reward_profile(name: str) -> RewardConfig:
 class EnvConfig:
     """Configuration of the sequential test-reveal dynamics."""
 
-    # Number of sequential test stages a chip can go through. Features are
-    # partitioned into this many groups and revealed one group per CONTINUE.
-    n_stages: int = 5
     # Hard cap on environment steps per episode (truncation guard).
-    max_steps: int = 6
+    max_steps: int = 4
+    # Highest stage index in the multi-stage environment (0=metadata, 2=Stage-3).
+    max_stage_index: int = 2
     # Value used for not-yet-revealed features in the observation vector.
     masked_value: float = 0.0
     # Whether to sample chips with replacement during training rollouts.
@@ -265,16 +235,10 @@ class EnvConfig:
 
 @dataclass(frozen=True)
 class DataConfig:
-    """Data loading / splitting / synthetic-generation configuration."""
+    """Train/test split configuration for the full-stage dataset."""
 
     test_size: float = 0.2
     val_size: float = 0.0
-    # Synthetic dataset parameters (used when no raw CSV is present).
-    n_synthetic_samples: int = 4000
-    n_synthetic_features: int = 20
-    synthetic_fail_rate: float = 0.25
-    # Fraction of values to randomly drop to emulate missing measurements.
-    synthetic_missing_rate: float = 0.02
 
 
 @dataclass(frozen=True)
@@ -317,7 +281,7 @@ class Config:
 
     seed: int = 42
     paths: Paths = field(default_factory=Paths)
-    reward: RewardConfig = field(default_factory=RewardConfig)
+    reward: RewardConfig = field(default_factory=lambda: REWARD_PROFILES["full_stage_v1"])
     env: EnvConfig = field(default_factory=EnvConfig)
     data: DataConfig = field(default_factory=DataConfig)
     qlearning: QLearningConfig = field(default_factory=QLearningConfig)
