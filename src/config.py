@@ -16,7 +16,7 @@ from pathlib import Path
 # --------------------------------------------------------------------------- #
 # Paths
 # --------------------------------------------------------------------------- #
-# ``config.py`` lives in ``project/src/`` so the project root is two parents up.
+# ``config.py`` lives in ``src/`` so the project root is one directory up.
 PROJECT_ROOT: Path = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET = "full_stage_v1"
 
